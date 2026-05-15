@@ -2,10 +2,14 @@
 
 `alpha2rescore` builds fast, incremental Percolator PIN files from:
 
-- ProtInsight Comet PIN parquet:
+- ProtInsight Comet PIN parquet or tab-separated text:
   - `ms2pin.parquet/<idn>.pin.parquet`
-- ProtInsight mzDuck spectra parquet:
+  - `<idn>.pin`
+  - `<idn>.pin.tsv`
+- ProtInsight mzDuck spectra parquet or text MGF:
   - `mzDuck/<idn>.mgf.parquet`
+  - `<idn>.mgf`
+  - `<idn>.mgf.gz`
 
 It combines:
 
@@ -21,14 +25,26 @@ The current implementation is optimized first for:
 - `/data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet`
 - `/data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck`
 
+## Origins and thanks
+
+This package builds directly on prior work from:
+
+- [alphapeptms2](</data/p/xiaolong/xiaolongTools/XCLabServer/proteome/protcosmo/alphapeptdeep/alphapeptms2/README.md>)
+- [MS2Rescore](https://github.com/CompOmics/ms2rescore)
+
+The AlphaPeptDeep, alphapeptms2, and MS2Rescore authors established most of the
+practical conventions that made this package possible. `alpha2rescore` reuses
+their ideas with a narrower focus on fast incremental PIN generation for this
+ProtInsight workflow.
+
 ## Main design points
 
 ### What this package does
 
 For one `idn`, `alpha2rescore`:
 
-1. reads the input PIN parquet
-2. reads the matching mzDuck spectrum parquet
+1. reads the input PIN file from parquet or tab-separated text
+2. reads the matching spectrum file from mzDuck parquet or text MGF
 3. parses the `Peptide` column into database lookup keys
 4. queries PostgreSQL for existing AlphaPept precursor predictions
 5. locally predicts only missing precursor spectra
@@ -40,8 +56,12 @@ For one `idn`, `alpha2rescore`:
 
 - peptide identity comes from `Peptide`
 - `Proteins` is ignored for mapping
-- spectra are matched by:
-  - `ScanNr -> mzDuck.scan_number`
+- spectra are matched by `ScanNr`
+- for mzDuck parquet:
+  - `ScanNr -> scan_number`
+- for text MGF:
+  - `ScanNr -> SCANS`
+  - fallback: `ScanNr -> TITLE` when `SCANS` is absent and the title contains a parseable scan id
 - variable modification lookup key is derived from `[U:id]` peptide text
 - the DB-style `var_mod_sites_unimod` string must be sorted by site position
 
@@ -113,8 +133,8 @@ Use the ms2rescore environment for the main package:
 
 This environment is used for:
 
-- reading PIN parquet
-- reading mzDuck parquet
+- reading PIN parquet or text PIN
+- reading mzDuck parquet or text MGF
 - Alpha feature generation
 - DeepLC
 - final PIN writing
@@ -180,8 +200,17 @@ Check help:
 
 ```bash
 alpha2rescore build \
-  --pin-parquet /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet/1554451.pin.parquet \
-  --mgf-parquet /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck/1554451.mgf.parquet \
+  --pin-file /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet/1554451.pin.parquet \
+  --spectrum-file /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck/1554451.mgf.parquet \
+  --out-dir /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore
+```
+
+Text-format example:
+
+```bash
+alpha2rescore build \
+  --pin-file /path/to/1554451.pin \
+  --spectrum-file /path/to/1554451.mgf.gz \
   --out-dir /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore
 ```
 
@@ -221,8 +250,12 @@ alpha2rescore build \
 
 ### Input/output
 
-- `--pin-parquet`
-- `--mgf-parquet`
+- `--pin-file`
+  - alias:
+    `--pin-parquet`
+- `--spectrum-file`
+  - alias:
+    `--mgf-parquet`
 - `--pin-dir`
 - `--mgf-dir`
 - `--idn`
@@ -332,6 +365,7 @@ print(result.output_pin)
 - precursor predictions are cached by precursor key
 - Alpha features are cached by stable PSM key
 - DeepLC base predictions are cached by stable PSM key
+- Alpha feature scoring uses a Numba JIT numeric kernel when `numba` is installed
 
 ### PostgreSQL lookup findings
 
@@ -366,6 +400,25 @@ Observed full fresh `1554451` build on real data:
 - DeepLC:
   - `68.26s`
 
+That full-run timing was measured before the Numba feature-scoring kernel was added.
+
+Observed full fresh `1554451` build after the Numba kernel:
+
+- output:
+  - `/XCLabServer002_fastIO/ms2rescore-test/alpha2rescore-full-1554451-numba/1554451.comet_alpha2rescore.pin.gz`
+- total wall time:
+  - `935.75s`
+- Alpha spectral features:
+  - `30.43s`
+- PostgreSQL helper:
+  - `808.95s`
+- DeepLC:
+  - `58.26s`
+
+The Alpha stage improved from `869.74s` to `30.43s` on the same full idn. This specific fresh
+run was dominated by PostgreSQL `DataFileRead` time while reading the large target/decoy
+`*_variant_alphapep` tables.
+
 ### Where multithreading helps
 
 Multithreading currently targets:
@@ -388,12 +441,25 @@ Recommended starting point for larger fresh runs on this host:
 Observed 10k staged run with preloaded precursor cache:
 
 - Alpha features:
-  - `104.69s` on the current code
+  - `104.69s` before the Numba kernel
 - DeepLC:
   - `19.99s`
 
-This means the next optimization priority is Alpha feature math, not DeepLC and not PostgreSQL.
-The most promising next technical direction is Numba or deeper NumPy refactoring in `features.py`, not C++.
+Current real-sample inner-loop benchmark on 1000 PSMs from `1554451`:
+
+- Numba kernel:
+  - `0.1011s`
+  - about `9895.7 PSM/s`
+- NumPy fallback:
+  - `1.1999s`
+  - about `833.4 PSM/s`
+
+This benchmark covers real mzDuck spectra, real precursor-cache predictions, and the same
+`calculate_feature_dict` entry point used by the build path. It does not include PIN reading,
+cache merging, PostgreSQL lookup, or DeepLC.
+
+The next optimization priority is measuring full fresh-run Alpha feature time after the Numba
+kernel, then deciding whether cache merge and row materialization are now the larger cost.
 
 ### When cache dominates
 
@@ -473,14 +539,15 @@ This is expected in the current environment. It does not block output generation
 
 ### Large Alpha stage is still slow
 
-Current evidence points here first:
+The previous hot spots were:
 
 - repeated `corrcoef`
 - repeated `quantile`
 - Spearman rank work
 
-Low-risk cleanup already improved serial Alpha scoring by about `16%`.
-If more speed is needed, prefer NumPy/Numba work here before considering C++.
+These are now handled by the Numba kernel in `features.py` when `numba` is available.
+If more speed is needed, first profile full fresh runs again; the remaining cost may have moved
+to cache materialization, row dictionaries, or thread scheduling rather than raw feature math.
 
 ### Numeric `nan` suspicion in output PIN
 

@@ -22,10 +22,10 @@ from .deeplc_module import (
 from .features import FEATURE_NAMES, PredictedSpectrum, calculate_feature_dict, empty_feature_dict
 from .io import (
     insert_feature_columns,
-    load_mzduck_spectra,
+    load_spectra,
     read_cache_parquet,
     read_json,
-    read_pin_parquet,
+    read_pin_table,
     write_json_atomic,
     write_parquet_atomic,
     write_pin_gz,
@@ -490,7 +490,7 @@ def _build_features_internal(
     )
 
     stage_started_at = perf_counter()
-    original_pin_df = read_pin_parquet(runtime_config.pin_parquet, runtime_config.max_psms)
+    original_pin_df = read_pin_table(runtime_config.pin_parquet, runtime_config.max_psms)
     current_rows = _augment_pin_df(original_pin_df, runtime_config.idn)
     log(
         f"loaded {len(original_pin_df)} PSM rows and derived {current_rows['precursor_key'].nunique()} precursor keys "
@@ -499,7 +499,7 @@ def _build_features_internal(
     )
 
     stage_started_at = perf_counter()
-    spectra_by_scan = load_mzduck_spectra(runtime_config.mgf_parquet)
+    spectra_by_scan = load_spectra(runtime_config.mgf_parquet)
     current_rows["observed_retention_time"] = [
         float(spectra_by_scan.get(int(scan)).retention_time)
         if int(scan) in spectra_by_scan
@@ -507,7 +507,7 @@ def _build_features_internal(
         for scan in current_rows["ScanNr"].tolist()
     ]
     log(
-        f"loaded {len(spectra_by_scan)} mzDuck spectra in {format_duration(perf_counter() - stage_started_at)}",
+        f"loaded {len(spectra_by_scan)} spectra in {format_duration(perf_counter() - stage_started_at)}",
         COMPONENT,
     )
 

@@ -10,10 +10,16 @@ Its purpose is to guide later development of `alpha2rescore`.
 
 ## Main objective
 
-`alpha2rescore` should remain a fast, incremental generator of Percolator PIN files for ProtInsight parquet inputs:
+`alpha2rescore` should remain a fast, incremental generator of Percolator PIN files for:
 
-- `ms2pin.parquet/<idn>.pin.parquet`
-- `mzDuck/<idn>.mgf.parquet`
+- ProtInsight parquet inputs:
+  - `ms2pin.parquet/<idn>.pin.parquet`
+  - `mzDuck/<idn>.mgf.parquet`
+- text-format compatibility inputs:
+  - `<idn>.pin`
+  - `<idn>.pin.tsv`
+  - `<idn>.mgf`
+  - `<idn>.mgf.gz`
 
 The priority order is:
 
@@ -43,7 +49,9 @@ Wrap them or call them, but do not patch them from this package.
 ### Spectrum matching
 
 - use `ScanNr -> mzDuck.scan_number`
-- do not depend on text MGF export
+- for text MGF support:
+  - use `SCANS=` first
+  - fall back to parsing `TITLE` only when `SCANS=` is absent
 
 ### Modification parsing
 
@@ -97,6 +105,7 @@ Current large-run behavior is:
   - `--alpha-feature-threads 16`
   - `--alpha-feature-batch-size 512`
   - `--deeplc-processes 8`
+- after the Numba feature kernel, full `1554451` Alpha scoring measured `30.43s`; one same-day fresh run was dominated by PostgreSQL lookup at `808.95s` due `DataFileRead` waits
 
 Preferred optimization order:
 
@@ -108,10 +117,9 @@ Preferred optimization order:
 
 Current proven low-risk Alpha targets:
 
-- repeated `numpy.quantile`
-- repeated `numpy.corrcoef`
-- Spearman rank work
-- poor effective CPU scaling from Python threads alone on large runs
+- the repeated `numpy.quantile`, `numpy.corrcoef`, and Spearman rank hot path now has a Numba kernel in `features.py`
+- next measurements should check whether cache materialization, row dictionary creation, or thread scheduling dominate after JIT scoring
+- poor effective CPU scaling from Python threads alone was observed before the Numba kernel and should be remeasured
 
 Do not jump to C++ before measuring whether NumPy/SciPy/Numba changes are insufficient.
 

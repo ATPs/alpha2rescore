@@ -118,8 +118,13 @@ def build_deeplc_base_features(
         _apply_calibration(predictor, calibration_state)
 
     psm_list = _make_psm_list(pending_df)
-    predictions = np.asarray(predictor.make_preds(psm_list), dtype=np.float32)
+    predictions = np.asarray(predictor.make_preds(psm_list), dtype=np.float32).reshape(-1)
     observations = pending_df["observed_retention_time"].to_numpy(dtype=np.float32, copy=False)
+    if len(predictions) != len(observations):
+        raise ValueError(
+            "DeepLC returned a different number of predictions than pending PSM rows: "
+            f"{len(predictions)} vs {len(observations)}"
+        )
     diffs = np.abs(predictions - observations)
 
     return pd.DataFrame(

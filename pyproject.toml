@@ -10,10 +10,12 @@ readme = "plan/20260513plan.md"
 requires-python = ">=3.10"
 dependencies = [
   "deeplc",
+  "numba",
   "numpy",
   "pandas",
   "psm_utils",
   "pyarrow",
+  "pyteomics",
   "scipy",
 ]
 
