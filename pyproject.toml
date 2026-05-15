@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alpha2rescore"
+version = "0.1.0"
+description = "Fast incremental AlphaPept+DeepLC feature generation for Percolator PIN files."
+readme = "plan/20260513plan.md"
+requires-python = ">=3.10"
+dependencies = [
+  "deeplc",
+  "numpy",
+  "pandas",
+  "psm_utils",
+  "pyarrow",
+  "scipy",
+]
+
+[project.scripts]
+alpha2rescore = "alpha2rescore.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
