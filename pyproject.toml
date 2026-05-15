@@ -6,13 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "alpha2rescore"
 version = "0.1.0"
 description = "Fast incremental AlphaPept+DeepLC feature generation for Percolator PIN files."
-readme = "plan/20260513plan.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "click>=7",
   "deeplc",
   "numba",
   "numpy",
   "pandas",
+  "peptdeep",
+  "psycopg",
+  "pydantic>=2",
   "psm_utils",
   "pyarrow",
   "pyteomics",
@@ -21,6 +25,7 @@ dependencies = [
 
 [project.scripts]
 alpha2rescore = "alpha2rescore.cli:main"
+alphapeptms2 = "alphapeptms2.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

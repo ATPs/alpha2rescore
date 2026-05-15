@@ -80,17 +80,17 @@ Example:
 
 ### Main package
 
-- `/data/p/anaconda3/envs/ms2rescore_3_2_1/bin/python`
+- `/data/p/anaconda3/envs/alphabase/bin/python`
 
 ### PostgreSQL helper
 
-- `/data/p/anaconda3/bin/python`
+- `/data/p/anaconda3/envs/alphabase/bin/python`
 
 ### Local AlphaPept helper
 
 - `/data/p/anaconda3/envs/alphabase/bin/python`
 
-Do not collapse these interpreters into one environment unless you have revalidated every dependency and runtime path.
+The helper should prefer `psycopg` and keep `psycopg2` only as a compatibility fallback.
 
 ## Performance guidance
 
@@ -170,6 +170,14 @@ Stable keys:
 ### Keep orchestration in
 
 - `src/alpha2rescore/core.py`
+
+### Keep bundled alphapeptms2 canonical code in
+
+- `src/alpha2rescore/alphapeptms2/`
+
+### Keep top-level alphapeptms2 compatibility wrappers thin in
+
+- `src/alphapeptms2/`
 
 ### Keep PostgreSQL lookup logic in
 

@@ -10,14 +10,61 @@ from uuid import uuid4
 
 import numpy as np
 import pandas as pd
-import psycopg2
-from psycopg2.extras import execute_values
+
+try:
+    import psycopg as _PSYCOPG
+except ImportError:
+    _PSYCOPG = None
+
+try:
+    import psycopg2 as _PSYCOPG2
+    from psycopg2.extras import execute_values as _PSYCOPG2_EXECUTE_VALUES
+except ImportError:
+    _PSYCOPG2 = None
+    _PSYCOPG2_EXECUTE_VALUES = None
 
 from .logging_utils import format_duration, log
 
 
 COMPONENT = "alpha2rescore.postgres_helper"
 FETCH_BATCH_SIZE = 2048
+
+
+def _selected_driver_name() -> str:
+    if _PSYCOPG is not None:
+        return "psycopg"
+    if _PSYCOPG2 is not None:
+        return "psycopg2"
+    raise ModuleNotFoundError("Install psycopg or psycopg2 to use alpha2rescore.postgres_helper")
+
+
+def connect(**kwargs):
+    driver_name = _selected_driver_name()
+    if driver_name == "psycopg":
+        return _PSYCOPG.connect(**kwargs)
+    return _PSYCOPG2.connect(**kwargs)
+
+
+def _to_execute_values_query(query: str) -> str:
+    before, sep, _after = query.partition("VALUES")
+    if not sep:
+        raise ValueError("bulk_insert_rows expected a single-row INSERT ... VALUES (...) query")
+    return f"{before}VALUES %s"
+
+
+def bulk_insert_rows(cursor, query: str, rows: list[tuple], page_size: int = 1000) -> None:
+    if not rows:
+        return
+    driver_name = _selected_driver_name()
+    if driver_name == "psycopg":
+        cursor.executemany(query, rows)
+        return
+    _PSYCOPG2_EXECUTE_VALUES(
+        cursor,
+        _to_execute_values_query(query),
+        rows,
+        page_size=page_size,
+    )
 
 
 def read_password(path: str) -> str:
@@ -162,12 +209,12 @@ def fetch_group(
                 ["precursor_key", "label", "pep_seq", "var_mod_sites_unimod", "charge"],
             ].itertuples(index=False, name=None)
         ]
-        execute_values(
+        bulk_insert_rows(
             cursor,
             """
             INSERT INTO alpha2rescore_query_precursors
             (precursor_key, label, pep_seq, var_mod_sites_unimod, charge)
-            VALUES %s
+            VALUES (%s, %s, %s, %s, %s)
             """,
             rows,
             page_size=1000,
@@ -381,7 +428,7 @@ def main() -> None:
         return
     log(f"loaded {len(input_df)} precursor rows", COMPONENT)
 
-    conn = psycopg2.connect(
+    conn = connect(
         host=args.db_host,
         port=args.db_port,
         dbname=args.db_name,
@@ -391,7 +438,8 @@ def main() -> None:
     )
     try:
         log(
-            f"connected to postgresql host={args.db_host} db={args.db_name} schema={args.db_schema}",
+            f"connected to postgresql host={args.db_host} db={args.db_name} "
+            f"schema={args.db_schema} via {_selected_driver_name()}",
             COMPONENT,
         )
         peak_code_map = load_peak_code_map(conn, args.db_schema)

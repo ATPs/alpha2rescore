@@ -20,22 +20,29 @@ It combines:
 - per-idn incremental caches
 - streamed stage logs for long runs
 
-The current implementation is optimized first for:
+The current implementation is optimized first for a ProtInsight workflow using
+parquet PIN inputs together with mzDuck spectra. Local benchmark paths and lab
+deployment details are recorded in:
 
-- `/data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet`
-- `/data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck`
+- `docs/development/alphapeptms2/20260515_local_environment_notes.md`
 
 ## Origins and thanks
 
 This package builds directly on prior work from:
 
-- [alphapeptms2](</data/p/xiaolong/xiaolongTools/XCLabServer/proteome/protcosmo/alphapeptdeep/alphapeptms2/README.md>)
+- `alphapeptms2`
 - [MS2Rescore](https://github.com/CompOmics/ms2rescore)
 
 The AlphaPeptDeep, alphapeptms2, and MS2Rescore authors established most of the
 practical conventions that made this package possible. `alpha2rescore` reuses
 their ideas with a narrower focus on fast incremental PIN generation for this
 ProtInsight workflow.
+
+The bundled `alphapeptms2` compatibility copy now lives inside this package.
+Local lab deployment notes are preserved under:
+
+- `docs/development/alphapeptms2/AGENTS.md`
+- `docs/development/alphapeptms2/`
 
 ## Main design points
 
@@ -103,12 +110,27 @@ The final PIN is always rewritten in original row order.
 alpha2rescore/
   README.md
   AGENTS.md
-  plan/
-    20260513plan.md
   pyproject.toml
+  docs/
+    development/
+      alpha2rescore/
+        20260513plan.md
+      alphapeptms2/
+        AGENTS.md
+        20260511design.md
+        20260511fix1.md
+        20260515_local_environment_notes.md
   src/alpha2rescore/
     __init__.py
     __main__.py
+    alphapeptms2/
+      __init__.py
+      __main__.py
+      core.py
+      result.py
+      spectrum.py
+      constants.py
+      _utils/
     alphapept_helper.py
     cli.py
     config.py
@@ -119,80 +141,243 @@ alpha2rescore/
     peptides.py
     postgres_helper.py
     subprocess_utils.py
+  src/alphapeptms2/
+    __init__.py
+    __main__.py
+    core.py
+    result.py
+    spectrum.py
+    constants.py
+    _utils/
   tests/
+    alphapeptms2/
 ```
 
 ## Environment and dependencies
 
-### Main runtime
+Use an activated Python environment with the package dependencies installed for
+installation, CLI usage, AlphaPept prediction, DeepLC, and PostgreSQL lookup.
 
-Use the ms2rescore environment for the main package:
+The examples below assume you have already activated the environment you want
+to use.
 
-- Python:
-  - `/data/p/anaconda3/envs/ms2rescore_3_2_1/bin/python`
-
-This environment is used for:
-
-- reading PIN parquet or text PIN
-- reading mzDuck parquet or text MGF
-- Alpha feature generation
-- DeepLC
-- final PIN writing
-- Alpha feature profiling and multithreaded scoring
-
-### Local helper runtimes
-
-The package intentionally uses separate Python interpreters for helper tasks.
-
-#### PostgreSQL lookup helper
-
-- interpreter:
-  - `/data/p/anaconda3/bin/python`
-
-Reason:
-
-- this environment already has PostgreSQL client dependencies
-
-#### Local AlphaPept missing-prediction helper
-
-- interpreter:
-  - `/data/p/anaconda3/envs/alphabase/bin/python`
-
-Reason:
-
-- AlphaPeptDeep and AlphaBase dependencies live there
+The bundled PostgreSQL helper prefers `psycopg` in this environment and keeps a
+`psycopg2` fallback for compatibility.
 
 ### PostgreSQL
 
-Default database settings:
+Database connection settings are deployment-specific. Configure them with:
 
-- host:
-  - `10.110.120.2`
-- port:
-  - `5432`
-- db:
-  - `proteome`
-- user:
-  - `xlab`
-- password file:
-  - `/data/users/x/.ssh/20250505xcweb.server2.xlab.postgresql.passwd`
-- schema:
-  - `protein_hs`
+- `--db-host`
+- `--db-port`
+- `--db-name`
+- `--db-user`
+- `--db-password-file`
+- `--db-schema`
+
+Local lab defaults are documented in:
+
+- `docs/development/alphapeptms2/20260515_local_environment_notes.md`
 
 ## Installation
 
 Install editable:
 
 ```bash
-/data/p/anaconda3/envs/ms2rescore_3_2_1/bin/python -m pip install -e /data/p/ms2rescore/alpha2rescore
+python -m pip uninstall -y alphapeptms2
+python -m pip install -e .
 ```
 
 Check help:
 
 ```bash
-/data/p/anaconda3/envs/ms2rescore_3_2_1/bin/alpha2rescore --help
-/data/p/anaconda3/envs/ms2rescore_3_2_1/bin/alpha2rescore build --help
+alpha2rescore --help
+alpha2rescore build --help
+alphapeptms2 --help
 ```
+
+## Bundled alphapeptms2
+
+The bundled `alphapeptms2` layer is a small compatibility wrapper around
+AlphaPeptDeep (`peptdeep`). It preserves the MS2PIP-like public surface:
+
+- `predict_single()`
+- `predict_batch()`
+- `correlate()`
+- CLI commands for the same workflows
+
+Canonical imports now live under `alpha2rescore.alphapeptms2`:
+
+```python
+from alpha2rescore.alphapeptms2 import predict_single, predict_batch, correlate
+```
+
+The legacy compatibility surface is also installed:
+
+```python
+from alphapeptms2 import predict_single, predict_batch, correlate
+from alphapeptms2 import core
+```
+
+For clean compatibility testing, remove any old standalone `alphapeptms2`
+editable install from the active environment before importing the top-level
+`alphapeptms2` package.
+
+### alphapeptms2 Python API
+
+Predict one charged ProForma peptidoform:
+
+```python
+from alphapeptms2 import predict_single
+
+result = predict_single("PGAQANPYSR/3", model="HCD", device="cpu")
+print(result.psm_index)
+print(result.theoretical_mz["b"].shape)
+print(result.predicted_intensity["y"].shape)
+```
+
+Predict a `PSMList`:
+
+```python
+from psm_utils import PSM, PSMList
+from alphapeptms2 import predict_batch
+
+psms = PSMList(
+    psm_list=[
+        PSM(peptidoform="PGAQANPYSR/3", spectrum_id="scan=1001"),
+        PSM(peptidoform="PEPTIDEK/2", spectrum_id="scan=1002"),
+    ]
+)
+
+results = predict_batch(psms, model="HCD", device="cpu")
+```
+
+Predict from a PSM file:
+
+```python
+from alphapeptms2 import predict_batch
+
+results = predict_batch(
+    "/path/to/psms.tsv",
+    psm_filetype=None,
+    model="HCD",
+    device="cpu",
+)
+```
+
+Correlate predicted and observed spectra:
+
+```python
+from alphapeptms2 import correlate
+
+results = correlate(
+    "/path/to/psms.tsv",
+    "/path/to/spectra.mzML.gz",
+    model="HCD",
+    device="cpu",
+    ms2_tolerance=0.02,
+    spectrum_id_pattern=r"scan=(.*)",
+    processes=8,
+)
+```
+
+Split GPU prediction from CPU-side matching when needed:
+
+```python
+from alphapeptms2 import calculate_correlations, predict_batch
+from alphapeptms2.core import attach_observed_intensities
+from alphapeptms2.spectrum import load_spectrum_index, normalize_spectrum_id
+from psm_utils import io as psm_io
+
+psms = psm_io.read_file("/path/to/psms.tsv")
+results = predict_batch(psms, device="gpu")
+spectrum_index = load_spectrum_index("/path/to/spectra.mzML.gz", r"scan=(.*)")
+psm_to_spec = {
+    idx: normalize_spectrum_id(psm.spectrum_id, r"scan=(.*)")
+    for idx, psm in enumerate(psms)
+}
+attach_observed_intensities(results, spectrum_index, psm_to_spec, processes=16)
+calculate_correlations(results)
+```
+
+### alphapeptms2 CLI
+
+After installation:
+
+```bash
+alphapeptms2 --help
+python -m alphapeptms2 --help
+```
+
+Predict one peptidoform:
+
+```bash
+alphapeptms2 predict-single "PGAQANPYSR/3" --model HCD --device cpu
+```
+
+Predict from a file:
+
+```bash
+alphapeptms2 predict-batch /path/to/psms.tsv \
+  --model HCD \
+  --device cpu \
+  --output predictions.json
+```
+
+Correlate with observed spectra:
+
+```bash
+alphapeptms2 correlate /path/to/psms.tsv /path/to/spectra.mgf \
+  --device cpu \
+  --ms2-tolerance 0.02 \
+  --spectrum-id-pattern 'scan=(.*)' \
+  --output correlations.json
+```
+
+### alphapeptms2 Result Layout
+
+Each call returns one or more `ProcessingResult` objects:
+
+```python
+class ProcessingResult:
+    psm_index: int
+    psm: Optional[psm_utils.PSM]
+    theoretical_mz: dict[str, np.ndarray]
+    predicted_intensity: dict[str, np.ndarray]
+    observed_intensity: Optional[dict[str, np.ndarray]]
+    correlation: Optional[float]
+```
+
+The MS2 arrays are keyed by ion type and have shape
+`(n_fragment_positions, 3)`. Column 0 is charge 1, column 1 is charge 2, and
+column 2 is the zero-filled charge-3 column for the default model.
+
+Predicted and observed matched intensities use:
+
+```python
+np.log2(raw_intensity + 0.001)
+```
+
+### alphapeptms2 Notes
+
+- Default public model is `HCD`, mapped internally to AlphaPeptDeep `generic`.
+- Current exposed fragment mapping is:
+  - `b_z1 -> b, charge 1`
+  - `b_z2 -> b, charge 2`
+  - `y_z1 -> y, charge 1`
+  - `y_z2 -> y, charge 2`
+- ProForma parsing uses `psm_utils.Peptidoform` and converts modifications into
+  AlphaBase-compatible names and sites.
+- Residue-attached terminal cases may normalize to terminal sites, for example
+  `Q[UNIMOD:28]PEPTIDE/2 -> Gln->pyro-Glu@Q^Any_N-term` with `mod_sites="0"`.
+- MGF input is sanitized before parsing; `.mgf`, `.mgf.gz`, `.mzML`, and
+  `.mzML.gz` are supported for `correlate()`.
+- Correlation excludes zero theoretical m/z values, so the zero-filled default
+  charge-3 columns do not affect the score.
+- Current limitations:
+  - only non-mod-loss `b` and `y` fragments are exposed
+  - `processes` affects CPU-side observed-spectrum matching, not prediction
+  - there is no package-level multi-process GPU scheduler yet
 
 ## CLI usage
 
@@ -200,9 +385,9 @@ Check help:
 
 ```bash
 alpha2rescore build \
-  --pin-file /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet/1554451.pin.parquet \
-  --spectrum-file /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck/1554451.mgf.parquet \
-  --out-dir /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore
+  --pin-file /path/to/ms2pin.parquet/1554451.pin.parquet \
+  --spectrum-file /path/to/mzduck/1554451.mgf.parquet \
+  --out-dir /path/to/output
 ```
 
 Text-format example:
@@ -211,26 +396,26 @@ Text-format example:
 alpha2rescore build \
   --pin-file /path/to/1554451.pin \
   --spectrum-file /path/to/1554451.mgf.gz \
-  --out-dir /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore
+  --out-dir /path/to/output
 ```
 
 ### Directory plus idn
 
 ```bash
 alpha2rescore build \
-  --pin-dir /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet \
-  --mgf-dir /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck \
+  --pin-dir /path/to/ms2pin.parquet \
+  --mgf-dir /path/to/mzduck \
   --idn 1554451 \
-  --out-dir /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore
+  --out-dir /path/to/output
 ```
 
 ### Smoke test on first N PSMs
 
 ```bash
 alpha2rescore build \
-  --pin-parquet /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet/1554451.pin.parquet \
-  --mgf-parquet /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck/1554451.mgf.parquet \
-  --out-dir /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore \
+  --pin-parquet /path/to/ms2pin.parquet/1554451.pin.parquet \
+  --mgf-parquet /path/to/mzduck/1554451.mgf.parquet \
+  --out-dir /path/to/output \
   --max-psms 500
 ```
 
@@ -238,9 +423,9 @@ alpha2rescore build \
 
 ```bash
 alpha2rescore build \
-  --pin-parquet /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet/1554451.pin.parquet \
-  --mgf-parquet /data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck/1554451.mgf.parquet \
-  --out-dir /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore-large \
+  --pin-parquet /path/to/ms2pin.parquet/1554451.pin.parquet \
+  --mgf-parquet /path/to/mzduck/1554451.mgf.parquet \
+  --out-dir /path/to/output \
   --alpha-feature-threads 8 \
   --alpha-feature-batch-size 512 \
   --deeplc-processes 4
@@ -344,9 +529,9 @@ from pathlib import Path
 from alpha2rescore import Alpha2RescoreConfig, build_pin
 
 config = Alpha2RescoreConfig(
-    pin_parquet=Path("/data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/ms2pin.parquet/1554451.pin.parquet"),
-    mgf_parquet=Path("/data2/pub/proteome/PRIDE/protinsight/2019/07/PXD010154/mzDuck/1554451.mgf.parquet"),
-    out_dir=Path("/XCLabServer002_fastIO/ms2rescore-test/alpha2rescore"),
+    pin_parquet=Path("/path/to/ms2pin.parquet/1554451.pin.parquet"),
+    mgf_parquet=Path("/path/to/mzduck/1554451.mgf.parquet"),
+    out_dir=Path("/path/to/output"),
     idn="1554451",
     alpha_feature_threads=8,
     deeplc_processes=4,
@@ -404,8 +589,6 @@ That full-run timing was measured before the Numba feature-scoring kernel was ad
 
 Observed full fresh `1554451` build after the Numba kernel:
 
-- output:
-  - `/XCLabServer002_fastIO/ms2rescore-test/alpha2rescore-full-1554451-numba/1554451.comet_alpha2rescore.pin.gz`
 - total wall time:
   - `935.75s`
 - Alpha spectral features:
@@ -512,26 +695,29 @@ For full-file runs, prefer tmux and capture a log file:
 
 ```bash
 /usr/bin/tmux new-session -d -s alpha2rescore_full \
-  "cd /data/p/ms2rescore && \
-   /data/p/anaconda3/envs/ms2rescore_3_2_1/bin/alpha2rescore build ... \
-   > /XCLabServer002_fastIO/ms2rescore-test/alpha2rescore-full/run.log 2>&1"
+  "cd /path/to/alpha2rescore && \
+   alpha2rescore build ... \
+   > /path/to/run.log 2>&1"
 ```
 
 ### `postgres_helper` fails on import
 
 Check that it is run under:
 
-- `/data/p/anaconda3/bin/python`
+- the same Python interpreter used to install `alpha2rescore`
 
 and that `PYTHONPATH` includes:
 
-- `/data/p/ms2rescore/alpha2rescore/src`
+- the repository `src/` directory when running directly from source without installation
+
+The helper prefers `psycopg` and can fall back to `psycopg2` if that is the
+available PostgreSQL client.
 
 ### `alphapept_helper` fails on import
 
 Check that it is run under:
 
-- `/data/p/anaconda3/envs/alphabase/bin/python`
+- the same Python interpreter used to install `alpha2rescore`
 
 ### DeepLC prints TensorFlow startup logs
 
@@ -558,6 +744,7 @@ Be careful:
 
 ## Validation status
 
-Implementation notes and reproduced test commands are recorded in:
+Detailed local implementation notes, reproduced lab commands, and local file
+paths are recorded in:
 
-- `/data/p/ms2rescore/ms2rescore-test/notes/20260513_alpha2rescore_v1_implementation.md`
+- `docs/development/alphapeptms2/20260515_local_environment_notes.md`

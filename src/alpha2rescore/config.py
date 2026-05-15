@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_MAIN_PYTHON = "/data/p/anaconda3/envs/ms2rescore_3_2_1/bin/python"
+DEFAULT_MAIN_PYTHON = "/data/p/anaconda3/envs/alphabase/bin/python"
 DEFAULT_ALPHAPEPT_PYTHON = "/data/p/anaconda3/envs/alphabase/bin/python"
-DEFAULT_POSTGRES_PYTHON = "/data/p/anaconda3/bin/python"
+DEFAULT_POSTGRES_PYTHON = "/data/p/anaconda3/envs/alphabase/bin/python"
 
 DEFAULT_POSTGRES_HOST = "10.110.120.2"
 DEFAULT_POSTGRES_PORT = 5432
